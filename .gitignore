@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
+# Logs and checkpoints
+logs/
+weights/
+*.ckpt
+*.pth
+*.log
+
+# Data (optional)
+data/processed/
+
+data/whisper/
+data/openface/
+data/raw/*.mp4
