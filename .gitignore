@@ -29,3 +29,4 @@ data/processed/
 data/whisper/
 data/openface/
 data/raw/*.mp4
+data/open_dataset/
