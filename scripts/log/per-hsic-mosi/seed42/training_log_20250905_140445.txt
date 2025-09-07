@@ -1,0 +1,123 @@
+Epoch 1/20
+Train:
+| Loss: 0.9194 | Acc: 0.5210 | Precision: 0.3334 | Recall: 0.3445 | F1: 0.3224
+Epoch 1/20
+Validate:
+| Loss: 0.9011 | Acc: 0.5415 | Precision: 0.1805 | Recall: 0.3333 | F1: 0.2342
+Epoch 2/20
+Train:
+| Loss: 0.7314 | Acc: 0.6519 | Precision: 0.4317 | Recall: 0.4485 | F1: 0.4395
+Epoch 2/20
+Validate:
+| Loss: 0.7538 | Acc: 0.6507 | Precision: 0.4383 | Recall: 0.4389 | F1: 0.4252
+Epoch 3/20
+Train:
+| Loss: 0.6578 | Acc: 0.7492 | Precision: 0.4988 | Recall: 0.5218 | F1: 0.5092
+Epoch 3/20
+Validate:
+| Loss: 0.7522 | Acc: 0.6070 | Precision: 0.4590 | Recall: 0.3914 | F1: 0.3524
+Epoch 4/20
+Train:
+| Loss: 0.5909 | Acc: 0.7843 | Precision: 0.5219 | Recall: 0.5462 | F1: 0.5331
+Epoch 4/20
+Validate:
+| Loss: 0.7679 | Acc: 0.6157 | Precision: 0.4971 | Recall: 0.3968 | F1: 0.3571
+Epoch 5/20
+Train:
+| Loss: 0.5691 | Acc: 0.7773 | Precision: 0.5174 | Recall: 0.5417 | F1: 0.5285
+Epoch 5/20
+Validate:
+| Loss: 0.6822 | Acc: 0.7031 | Precision: 0.4742 | Recall: 0.4786 | F1: 0.4665
+Epoch 6/20
+Train:
+| Loss: 0.5405 | Acc: 0.8030 | Precision: 0.5342 | Recall: 0.5591 | F1: 0.5459
+Epoch 6/20
+Validate:
+| Loss: 0.6705 | Acc: 0.7467 | Precision: 0.4972 | Recall: 0.5307 | F1: 0.5110
+Epoch 7/20
+Train:
+| Loss: 0.5115 | Acc: 0.8224 | Precision: 0.5478 | Recall: 0.5739 | F1: 0.5595
+Epoch 7/20
+Validate:
+| Loss: 0.6557 | Acc: 0.7336 | Precision: 0.4892 | Recall: 0.5058 | F1: 0.4938
+Epoch 8/20
+Train:
+| Loss: 0.5232 | Acc: 0.8139 | Precision: 0.5418 | Recall: 0.5674 | F1: 0.5536
+Epoch 8/20
+Validate:
+| Loss: 0.8503 | Acc: 0.5939 | Precision: 0.5002 | Recall: 0.3777 | F1: 0.3236
+Epoch 9/20
+Train:
+| Loss: 0.4875 | Acc: 0.8294 | Precision: 0.5519 | Recall: 0.5774 | F1: 0.5641
+Epoch 9/20
+Validate:
+| Loss: 0.6404 | Acc: 0.7598 | Precision: 0.5033 | Recall: 0.5323 | F1: 0.5173
+Epoch 10/20
+Train:
+| Loss: 0.4665 | Acc: 0.8489 | Precision: 0.5650 | Recall: 0.5917 | F1: 0.5774
+Epoch 10/20
+Validate:
+| Loss: 0.6504 | Acc: 0.7555 | Precision: 0.5010 | Recall: 0.5342 | F1: 0.5162
+Epoch 11/20
+Train:
+| Loss: 0.4588 | Acc: 0.8489 | Precision: 0.5652 | Recall: 0.5921 | F1: 0.5776
+Epoch 11/20
+Validate:
+| Loss: 0.6420 | Acc: 0.7555 | Precision: 0.4999 | Recall: 0.5277 | F1: 0.5132
+Epoch 12/20
+Train:
+| Loss: 0.4364 | Acc: 0.8551 | Precision: 0.5696 | Recall: 0.5969 | F1: 0.5818
+Epoch 12/20
+Validate:
+| Loss: 0.6644 | Acc: 0.7336 | Precision: 0.4907 | Recall: 0.5058 | F1: 0.4941
+Epoch 13/20
+Train:
+| Loss: 0.4244 | Acc: 0.8614 | Precision: 0.5732 | Recall: 0.5999 | F1: 0.5859
+Epoch 13/20
+Validate:
+| Loss: 0.6612 | Acc: 0.7511 | Precision: 0.4987 | Recall: 0.5222 | F1: 0.5090
+Epoch 14/20
+Train:
+| Loss: 0.4324 | Acc: 0.8629 | Precision: 0.5743 | Recall: 0.6011 | F1: 0.5870
+Epoch 14/20
+Validate:
+| Loss: 0.6825 | Acc: 0.7467 | Precision: 0.4959 | Recall: 0.5186 | F1: 0.5056
+Epoch 15/20
+Train:
+| Loss: 0.4010 | Acc: 0.8723 | Precision: 0.5804 | Recall: 0.6074 | F1: 0.5933
+Epoch 15/20
+Validate:
+| Loss: 0.6709 | Acc: 0.7555 | Precision: 0.4999 | Recall: 0.5277 | F1: 0.5132
+Epoch 16/20
+Train:
+| Loss: 0.3978 | Acc: 0.8731 | Precision: 0.5811 | Recall: 0.6079 | F1: 0.5940
+Epoch 16/20
+Validate:
+| Loss: 0.6562 | Acc: 0.7380 | Precision: 0.4906 | Recall: 0.5235 | F1: 0.5047
+Epoch 17/20
+Train:
+| Loss: 0.3795 | Acc: 0.8871 | Precision: 0.5904 | Recall: 0.6179 | F1: 0.6036
+Epoch 17/20
+Validate:
+| Loss: 0.7269 | Acc: 0.7555 | Precision: 0.5006 | Recall: 0.5333 | F1: 0.5160
+Epoch 18/20
+Train:
+| Loss: 0.3856 | Acc: 0.8754 | Precision: 0.5825 | Recall: 0.6097 | F1: 0.5954
+Epoch 18/20
+Validate:
+| Loss: 0.7476 | Acc: 0.7293 | Precision: 0.5024 | Recall: 0.4957 | F1: 0.4845
+Epoch 19/20
+Train:
+| Loss: 0.3645 | Acc: 0.8863 | Precision: 0.5900 | Recall: 0.6167 | F1: 0.6030
+Epoch 19/20
+Validate:
+| Loss: 0.7124 | Acc: 0.7162 | Precision: 0.4810 | Recall: 0.5119 | F1: 0.4907
+Epoch 20/20
+Train:
+| Loss: 0.3283 | Acc: 0.9019 | Precision: 0.6003 | Recall: 0.6282 | F1: 0.6137
+Epoch 20/20
+Validate:
+| Loss: 0.7160 | Acc: 0.7205 | Precision: 0.4811 | Recall: 0.5127 | F1: 0.4932
+Training finished. Results saved to log\per-hsic-mosi\seed42\training_log_20250905_140445.txt and CSV.
+Test:
+| Loss: 0.6840 | Acc: 0.7347 | Precision: 0.4884 | Recall: 0.5029 | F1: 0.4941

@@ -28,6 +28,7 @@ model:
 
 # 训练参数
 training:
+  seed: 42
   epochs: 20
   lr: 3e-4        # BERT类模型：典型lr范围 1e-5 到 5e-4
   device: "cuda"  # 自动检测时会覆盖

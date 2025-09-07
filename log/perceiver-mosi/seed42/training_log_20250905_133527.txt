@@ -1,0 +1,40 @@
+Epoch 1/20
+Train:
+| Loss: 0.8790 | Acc: 0.5763 | Precision: 0.3793 | Recall: 0.3900 | F1: 0.3796
+Validate:
+| Loss: 0.8332 | Acc: 0.6681 | Precision: 0.4479 | Recall: 0.4552 | F1: 0.4434
+Epoch 2/20
+Train:
+| Loss: 0.6671 | Acc: 0.7212 | Precision: 0.4789 | Recall: 0.5003 | F1: 0.4893
+Validate:
+| Loss: 0.6510 | Acc: 0.7424 | Precision: 0.5040 | Recall: 0.5337 | F1: 0.5092
+Epoch 3/20
+Train:
+| Loss: 0.5689 | Acc: 0.7749 | Precision: 0.5153 | Recall: 0.5387 | F1: 0.5265
+Validate:
+| Loss: 0.5998 | Acc: 0.7686 | Precision: 0.5091 | Recall: 0.5404 | F1: 0.5243
+Epoch 4/20
+Train:
+| Loss: 0.5176 | Acc: 0.8107 | Precision: 0.5392 | Recall: 0.5636 | F1: 0.5510
+Validate:
+| Loss: 0.5956 | Acc: 0.7773 | Precision: 0.5150 | Recall: 0.5468 | F1: 0.5304
+Epoch 5/20
+Train:
+| Loss: 0.4935 | Acc: 0.8131 | Precision: 0.5411 | Recall: 0.5646 | F1: 0.5526
+Validate:
+| Loss: 0.6213 | Acc: 0.7555 | Precision: 0.4999 | Recall: 0.5277 | F1: 0.5132
+Epoch 6/20
+Train:
+| Loss: 0.4059 | Acc: 0.8621 | Precision: 0.5750 | Recall: 0.5986 | F1: 0.5865
+Validate:
+| Loss: 0.7161 | Acc: 0.7729 | Precision: 0.5221 | Recall: 0.5543 | F1: 0.5300
+Epoch 7/20
+Train:
+| Loss: 0.3468 | Acc: 0.8808 | Precision: 0.7214 | Recall: 0.6234 | F1: 0.6222
+Validate:
+| Loss: 0.7152 | Acc: 0.7817 | Precision: 0.5186 | Recall: 0.5532 | F1: 0.5344
+Epoch 8/20
+Train:
+| Loss: 0.3687 | Acc: 0.8583 | Precision: 0.7277 | Recall: 0.6304 | F1: 0.6438
+Validate:
+| Loss: 0.8424 | Acc: 0.6987 | Precision: 0.4789 | Recall: 0.4731 | F1: 0.4616

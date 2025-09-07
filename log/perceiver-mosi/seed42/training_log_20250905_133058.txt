@@ -1,0 +1,6 @@
+Epoch 1/20 | Train Loss: 0.8790 | Acc: 0.5763 | Precision: 0.3793 | Recall: 0.3900 | F1: 0.3796
+Val Loss: 0.8332 | Acc: 0.6681 | Precision: 0.4479 | Recall: 0.4552 | F1: 0.4434
+Epoch 2/20 | Train Loss: 0.6671 | Acc: 0.7212 | Precision: 0.4789 | Recall: 0.5003 | F1: 0.4893
+Val Loss: 0.6510 | Acc: 0.7424 | Precision: 0.5040 | Recall: 0.5337 | F1: 0.5092
+Epoch 3/20 | Train Loss: 0.5689 | Acc: 0.7749 | Precision: 0.5153 | Recall: 0.5387 | F1: 0.5265
+Val Loss: 0.5998 | Acc: 0.7686 | Precision: 0.5091 | Recall: 0.5404 | F1: 0.5243

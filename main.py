@@ -1,87 +1,111 @@
-import torch                # 引入 PyTorch 主库，负责张量运算与深度学习
-import numpy as np          # NumPy，做数值/数组辅助运算（本文件未直接用，但常备用）
-from pathlib import Path    # 更方便的跨平台路径处理
-import sys                  # 访问解释器相关功能，这里用来操作 import 搜索路径
+# ==================== main.py ====================
+import torch
+import numpy as np
+from pathlib import Path
+import sys
+import csv
+from datetime import datetime
+import random
 
 # 调整 Python 搜索路径，保证自定义模块能被顺利 import
 sys.path.append(str(Path(__file__).parent))
 
-"""
-    导入工程内自定义工具 / 逻辑模块
-"""
-from utils.config_loader import load_config     # 读取 YAML/JSON 的配置文件
-from utils.logger import TrainingLogger         # 训练日志记录器
-from utils.visualizer import ResultVisualizer   # 结果可视化
-from run.train import train_epoch               # epoch 的训练函数
-from run.val import validate                    # 验证集评估函数
-from run.test import test_model                 # 测试集评估函数
+from utils.config_loader import load_config
+from run.train import train_epoch
+from run.val import valid_epoch
+from run.test import test_model
 
-"""
-=========   主入口   =========
-"""
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def main():
     # 1. 加载配置
-    print("=== 初始化开始 ===")
-    cfg = load_config("./config/config.yaml")   # 读取超参 & 路径配置
-    print("配置加载完成")
-    device = torch.device(cfg.training.device)  # 选择 CPU / CUDA / MPS
+    cfg = load_config("./config/config.yaml")
+    device = torch.device(cfg.training.device)
+    SEED = cfg.training.seed
+    set_seed(SEED)
 
-    # 2. 初始化需要用到的工具
-    logger = TrainingLogger(cfg)                # 创建日志记录器
-    visualizer = ResultVisualizer(cfg,logger)   # 创建可视化器，需 logger 协助
-    print("日志、可视化工具初始化完成")
-
-    # 3. 数据加载
-    from utils.dataLoader import get_loader  # 延迟导入避免循环依赖
-
+    # 2. 数据加载
+    from utils.dataLoader import get_loader
     train_loader = get_loader(cfg.data.path, "train", cfg.data.batch_size)
     val_loader = get_loader(cfg.data.path, "valid", cfg.data.batch_size)
     test_loader = get_loader(cfg.data.path, "test", cfg.data.batch_size)
-    # 依次返回三大数据集的 PyTorch DataLoader
 
-
-    # 4. 模型初始化
+    # 3. 模型初始化
     from models.perceiver import MultimodalPerceiver
-    model = MultimodalPerceiver(cfg).to(device)     # 构造多模态 Perceiver 并放到 device
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)        # Adam 优化器
+    model = MultimodalPerceiver(cfg).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)
 
+    # 4. 创建日志文件夹
+    log_root = Path(f"D:/MyProject/RobotPerceiver/log/perceiver-mosi/seed{SEED}")
+    log_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    txt_file = log_root / f"training_log_{timestamp}.txt"
+    csv_file = log_root / f"training_log_{timestamp}.csv"
 
-    # 5. 训练循环
-    print("=== 训练开始 ===")
-    for epoch in range(cfg.training.epochs):
-        # 1) 训练阶段
-        print("=== 训练阶段 ===")
-        print(f"Epoch {epoch + 1}/{cfg.training.epochs} 开始")
-        train_metrics = train_epoch(model, train_loader, optimizer, device)
-        print(f"训练完成 - 损失: {train_metrics['loss']:.4f}")
+    # 写入 CSV 表头
+    with open(csv_file, mode="w", newline="") as f_csv:
+        writer = csv.writer(f_csv)
+        writer.writerow(["Epoch", "Train_Loss", "Train_Acc", "Train_Precision", "Train_Recall", "Train_F1",
+                         "Val_Loss", "Val_Acc", "Val_Precision", "Val_Recall", "Val_F1"])
 
-        # 2) 验证阶段
-        val_metrics = validate(model, val_loader, device)       # 在验证集前向推理
-        print(f"验证完成 - 准确率: {val_metrics['accuracy']:.2%}")
+    # 5. 训练 + 验证循环
+    EPOCHS = cfg.training.epochs
+    with open(txt_file, "w") as f_txt:
+        for epoch in range(EPOCHS):
+            # --- 训练 ---
+            train_metrics = train_epoch(model, train_loader, optimizer, device)
+            # train_metrics: dict 应包含 loss, acc, precision, recall, f1
+            log_str = (f"Epoch {epoch+1}/{EPOCHS}\n"
+                       f"Train:\n"
+                       f"| Loss: {train_metrics['loss']:.4f} | "
+                       f"Acc: {train_metrics['acc']:.4f} | "
+                       f"Precision: {train_metrics['precision']:.4f} | "
+                       f"Recall: {train_metrics['recall']:.4f} | "
+                       f"F1: {train_metrics['f1']:.4f}")
+            print(log_str)
+            f_txt.write(log_str + "\n")
 
-        # 3) 记录日志
-        logger.log(epoch, train_metrics, val_metrics)           # 把本 epoch 的指标写入日志
+            # --- 验证 ---
+            val_metrics = valid_epoch(model, val_loader, device)
+            log_str_val = (f"Validate:\n"
+                            f"| Loss: {val_metrics['loss']:.4f} | "
+                           f"Acc: {val_metrics['acc']:.4f} | "
+                           f"Precision: {val_metrics['precision']:.4f} | "
+                           f"Recall: {val_metrics['recall']:.4f} | "
+                           f"F1: {val_metrics['f1']:.4f}")
+            print(log_str_val)
+            f_txt.write(log_str_val + "\n")
 
-        # 4) 可视化更新
-        visualizer.update(epoch, model, val_loader)             # 动态画图/存可视化样例
+            # 写入 CSV
+            with open(csv_file, mode="a", newline="") as f_csv:
+                writer = csv.writer(f_csv)
+                writer.writerow([
+                    epoch+1,
+                    train_metrics['loss'],
+                    train_metrics['acc'],
+                    train_metrics['precision'],
+                    train_metrics['recall'],
+                    train_metrics['f1'],
+                    val_metrics['loss'],
+                    val_metrics['acc'],
+                    val_metrics['precision'],
+                    val_metrics['recall'],
+                    val_metrics['f1']
+                ])
 
+    # 6. 测试阶段
+    test_metrics = test_model(model, test_loader, device)
+    log_test = ("Test Metrics | " +
+                " | ".join([f"{k}: {v:.4f}" for k, v in test_metrics.items()]))
+    print(log_test)
+    with open(txt_file, "a") as f_txt:
+        f_txt.write(log_test + "\n")
 
-    # 6. 最终测试
-    print("=== 测试阶段 ===")
-    test_metrics = test_model(model, test_loader, device)       # 在测试集上评估最终指标
-    print("测试完成:", test_metrics)
-
-    # 7. 记录日志、可视化
-    print("=== 记录日志ing ===")
-    logger.log_test(test_metrics)                               # 把测试结果写日志
-
-    print("=== 可视化ing ===")
-    visualizer.generate_final_report(model, test_loader, device)    # 生成终版图
-
-    print("=== 程序运行结束 ===")
-
-"""
-    Python 直接运行该脚本时的入口（被 import 时不会执行）
-"""
 if __name__ == "__main__":
     main()

@@ -1,133 +1,211 @@
-# scripts/hsic_lasso.py
-"""
-用 pyhsiclasso 计算 HSIC-Lasso 权重 α，保存为 .npy 文件。
-依赖：pip install pyhsiclasso torch numpy
-"""
-
-from pathlib import Path
+# # scripts/hsic_lasso.py
+# """
+#     用 pyhsiclasso 计算 HSIC-Lasso token-level mask，保存为 .npy 文件。
+#     依赖：pip install pyhsiclasso torch numpy
+# """
+#
+# from pathlib import Path
+# import numpy as np
+# import torch
+# import torch.nn as nn
+# from pyHSICLasso import HSICLasso
+# from utils.dataLoader import get_loader
+#
+# # ----- 配置参数 -----
+# PKL_PATH = Path("D:/MyProject/RobotPerceiver/data/open_dataset/mosi/Processed/aligned_50.pkl")
+# SPLIT = "train"
+# BATCH_SIZE = 128
+# PROJ_DIM = 256  # 统一映射到的维度
+# SAVE_DIR = Path("./data/alpha")
+# SAVE_DIR.mkdir(parents=True, exist_ok=True)
+# DEVICE = "cuda"
+#
+# SEQ_LEN = 50
+#
+# # ----- 打印工具 -----
+# def preview(name, arr):
+#     if isinstance(arr, torch.Tensor):
+#         arr = arr.cpu().numpy()
+#     print(f"{name:>12}: shape {arr.shape}")
+#     print(arr[:2], "\n")       # 前 2 行
+#
+# # ----- 计算alpha -----
+# def compute_alpha(X, y, name="Feature"):
+#     """
+#         使用 HSIC-Lasso 计算特征 alpha 权重
+#         Args:
+#             X: 特征矩阵 (n_samples, n_features)
+#             y: 标签向量 (n_samples,)
+#             name: 模态名称（仅用于打印日志）
+#         Returns:
+#             alpha: 特征重要性分数（与 X 的特征维度对应）
+#     """
+#     model = HSICLasso()
+#     model.input(X, y)
+#     model.classification()   # 或 regression()，取决于任务
+#
+#     # 得分结果，全部保留
+#     scores = model.get_index_score()
+#     idx = model.get_index()  # 所有特征按重要性排序
+#
+#     alpha = np.zeros(X.shape[1], dtype=np.float32)
+#     for i, feature_idx in enumerate(idx):
+#         alpha[feature_idx] = scores[i]
+#
+#     print(f"[HSIC-Lasso] {name} -> computed alpha for all features")
+#     return alpha
+#
+# # ----- 主函数 -----
+# def run():
+#     loader = get_loader(PKL_PATH, SPLIT, batch_size=BATCH_SIZE, shuffle=False)
+#
+#     # 定义简单线性层做统一映射（不开训练），通通映射到256维
+#     proj_text = nn.Linear(768, PROJ_DIM).to(DEVICE).eval()
+#     proj_audio = nn.Linear(5, PROJ_DIM).to(DEVICE).eval()
+#     proj_vision = nn.Linear(20, PROJ_DIM).to(DEVICE).eval()
+#
+#     text_pool, audio_pool, vision_pool, labels_all = [], [], [], []
+#
+#     # --------- 前向 + 池化 ----------
+#     with torch.no_grad():
+#         for text_seq, audio_seq, vision_seq, label in loader:
+#             text_seq = text_seq.to(DEVICE)
+#             audio_seq = audio_seq.to(DEVICE)
+#             vision_seq = vision_seq.to(DEVICE)
+#
+#             t_emb = proj_text(text_seq).mean(dim=1).cpu()
+#             a_emb = proj_audio(audio_seq).mean(dim=1).cpu()
+#             v_emb = proj_vision(vision_seq).mean(dim=1).cpu()
+#
+#             text_pool.append(t_emb)
+#             audio_pool.append(a_emb)
+#             vision_pool.append(v_emb)
+#             labels_all.append(label)
+#
+#     X_text = torch.cat(text_pool).numpy()
+#     X_audio = torch.cat(audio_pool).numpy()
+#     X_vision = torch.cat(vision_pool).numpy()
+#     y_all = torch.cat(labels_all).numpy()
+#
+#     # --------- 计算 alpha ----------
+#     alpha_text = compute_alpha(X_text, y_all, "TEXT")
+#     alpha_audio = compute_alpha(X_audio, y_all, "AUDIO")
+#     alpha_vision = compute_alpha(X_vision, y_all, "VISION")
+#
+#     # --------- 保存 ----------
+#     np.save(SAVE_DIR / "alpha_text.npy", alpha_text)
+#     np.save(SAVE_DIR / "alpha_audio.npy", alpha_audio)
+#     np.save(SAVE_DIR / "alpha_vision.npy", alpha_vision)
+#     print(f"\nα 已保存到: {SAVE_DIR.resolve()}")
+#
+# if __name__ == "__main__":
+#     run()
+#
+#     alpha_text = np.load(SAVE_DIR / "alpha_text.npy")
+#     alpha_audio = np.load(SAVE_DIR / "alpha_audio.npy")
+#     alpha_vision = np.load(SAVE_DIR / "alpha_vision.npy")
+#
+#     print("alpha_text:", alpha_text.shape)
+#     print("alpha_audio:", alpha_audio.shape)
+#     print("alpha_vision:", alpha_vision.shape)
+# scripts/compute_alpha_mask.py
 import numpy as np
 import torch
-import torch.nn as nn
+from pathlib import Path
 from pyHSICLasso import HSICLasso
 from utils.dataLoader import get_loader
 
-# ----- 配置参数 -----
-PKL_PATH = Path("J:/Lab_experiment/WZW/dataset/CMU-MOSI/Processed/aligned_50.pkl")
-SPLIT = "train"
-BATCH_SIZE = 128
-PROJ_DIM = 256  # 统一映射到的维度
+# ---------------- 配置 ----------------
+PKL_PATH = Path("D:/MyProject/RobotPerceiver/data/open_dataset/mosi/Processed/aligned_50.pkl")
 SAVE_DIR = Path("./data/alpha")
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
-DEVICE = "cuda"  # 如果有GPU可改成 "cuda"
+BATCH_SIZE = 16
+DEVICE = "cuda"
 
-# ----- 打印形状、前两行、前五列 ----
-def preview(name,arr):
-    if isinstance(arr, torch.Tensor):
-        arr = arr.cpu().numpy()
-    print(f"{name:>12}: shape {arr.shape}")
-    print(arr[:2, :5], "\n")       # 前 2 行 × 前 5 列
+PROJ_DIM = 256  # latent_dim，和 MultimodalPerceiver 保持一致
 
-# def compute_alpha(X: np.ndarray, y: np.ndarray,tag: str) -> np.ndarray:
-#     """计算特征权重并归一化。并打印权重信息"""
-#     print(f"\n=== HSIC‑Lasso for {tag} ===")
-#     preview("X_pool", X)# 打印池化后的X
-#     preview("y", y.reshape(-1, 1))# 打印标签y
-#
-#     model = HSICLasso()
-#     model.input(X, y)
-#     model.classification()  # 分类任务，回归改成 model.regression()
-#
-#
-#     weights = model.beta[:, -1].astype(float)  # shape = (256,)
-#
-#     # weights = np.array(model.get_features()).astype(float)# 求权重并转为数值
-#
-#     preview("raw_w：", weights.reshape(1, -1))
-#     alpha = (weights - weights.min()) / (weights.max() - weights.min() + 1e-8)
-#     preview("alpha：", alpha.reshape(1, -1))
-#     return alpha
-def compute_alpha(X: np.ndarray, y: np.ndarray, tag: str, proj_dim=256, smooth_ratio=0.2) -> np.ndarray:
-    """计算带动态平滑的特征权重 alpha，并打印权重信息。
-    smooth_ratio 是非选中特征权重相对于选中特征均值的比例。
+# ---------------- 简单投影函数 ----------------
+def project_features(loader, proj_layer):
     """
-    print(f"\n=== HSIC‑Lasso for {tag} ===")
-    preview("X_pool", X)
-    preview("y", y.reshape(-1, 1))
+    将原始特征投影到 latent_dim 并拼接 batch
+    """
+    proj_layer.eval()
+    all_proj = []
 
+    with torch.no_grad():
+        for text, audio, vision, y in loader:
+            x = text.to(DEVICE)  # 这里只是示例，如果是audio/vision换成相应
+            x_proj = proj_layer(x)
+            all_proj.append(x_proj.cpu().numpy().reshape(-1, x_proj.shape[-1]))  # [B*T, latent_dim]
+
+    return np.concatenate(all_proj, axis=0)  # [N_tokens, latent_dim]
+
+# ---------------- 计算 alpha ----------------
+def compute_alpha(X, y, topk=None):
+    """
+    X: [N, D] 特征矩阵（N样本数，D特征维度）
+    y: [N,] 标签
+    返回 alpha: [D,] 每个特征维度的重要性
+    """
     model = HSICLasso()
     model.input(X, y)
-    model.classification()
+    model.classification()  # 或 regression()
 
-    # 获取选中特征索引和对应的权重（非归一化）
-    selected_indices = model.get_index()
-    selected_weights_raw = model.get_index_score()
+    scores = np.zeros(X.shape[1])
+    selected = model.get_index()
+    selected_scores = model.get_index_score()
 
-    print(f"选中特征数量: {len(selected_indices)}")
-    preview("selected_weights_raw", selected_weights_raw.reshape(1, -1))
+    for i, idx in enumerate(selected):
+        scores[idx] = selected_scores[i]
 
-    # 归一化选中特征权重到 [0,1]
-    weights_norm = (selected_weights_raw - selected_weights_raw.min()) / (selected_weights_raw.max() - selected_weights_raw.min() + 1e-8)
-    preview("selected_weights_norm", weights_norm.reshape(1, -1))
+    if topk is not None:
+        # 保留 topk 特征，其余置0
+        top_idx = np.argsort(scores)[-topk:]
+        mask = np.zeros_like(scores)
+        mask[top_idx] = scores[top_idx]
+        scores = mask
 
-    # 计算平滑值（非选中特征权重），是选中特征均值的 smooth_ratio 倍
-    smooth_val = weights_norm.mean() * smooth_ratio
-    print(f"平滑权重 smooth_val: {smooth_val:.4f}")
+    return scores
 
-    # 构建完整权重向量，先填充平滑值
-    alpha_full = np.full(proj_dim, smooth_val, dtype=np.float32)
+# ---------------- 主函数 ----------------
+def run_alpha(cfg, model_projs):
+    loader = get_loader(PKL_PATH, "train", batch_size=BATCH_SIZE, shuffle=False)
 
-    # 把选中特征权重赋进去
-    alpha_full[selected_indices] = weights_norm
+    # 准备标签
+    all_labels = []
+    for _, _, _, y in loader:
+        all_labels.append(y.cpu().numpy().reshape(-1))
+    y_all = np.concatenate(all_labels, axis=0)  # [N_tokens,]
 
-    preview("alpha_full", alpha_full.reshape(1, -1))
-    return alpha_full
+    alpha_dict = {}
+    for modal, proj in model_projs.items():
+        print(f"Computing HSIC-Lasso for {modal} ...")
+        X = project_features(loader, proj)  # [N_tokens, latent_dim]
+        alpha = compute_alpha(X, y_all)
+        alpha_dict[modal] = alpha
+        print(f"Alpha {modal} shape: {alpha.shape}")
 
+    # 保存
+    np.savez(SAVE_DIR / "alpha_masks.npz",
+             text=alpha_dict["text"],
+             audio=alpha_dict["audio"],
+             vision=alpha_dict["vision"])
+    print(f"Alpha masks saved to {SAVE_DIR.resolve()}")
 
-def run():
-    loader = get_loader(PKL_PATH, SPLIT, batch_size=BATCH_SIZE, shuffle=False)
+    return alpha_dict
 
-    # 定义简单线性层做统一映射（不开训练），通通映射到256维
-    proj_text = nn.Linear(768, PROJ_DIM).to(DEVICE).eval()
-    proj_audio = nn.Linear(5, PROJ_DIM).to(DEVICE).eval()
-    proj_vision = nn.Linear(20, PROJ_DIM).to(DEVICE).eval()
-
-    # 保存池化结果
-    text_pool, audio_pool, vision_pool, labels_all = [], [], [], []
-
-    # --------- 前向 + pool ----------
-    for text_seq, audio_seq, vision_seq, label in loader:
-        text_seq = text_seq.to(DEVICE)
-        audio_seq = audio_seq.to(DEVICE)
-        vision_seq = vision_seq.to(DEVICE)
-
-        t_emb = proj_text(text_seq)  # [B, 50, d]
-        a_emb = proj_audio(audio_seq)
-        v_emb = proj_vision(vision_seq)
-
-        text_pool.append(t_emb.mean(1).cpu())
-        audio_pool.append(a_emb.mean(1).cpu())
-        vision_pool.append(v_emb.mean(1).cpu())
-        labels_all.append(label)
-    # detach:切断反向传播的计算图    cpu：从gpu拷贝会cpu   numpy：转为numpy数组
-    X_text = torch.cat(text_pool).detach().cpu().numpy()  # [N, d]
-    X_audio = torch.cat(audio_pool).detach().cpu().numpy()
-    X_vision = torch.cat(vision_pool).detach().cpu().numpy()
-    y_all = torch.cat(labels_all).detach().cpu().numpy()
-
-    # --------- HSIC‑Lasso ----------
-    # alpha_text = compute_alpha(X_text, y_all, "TEXT")
-    # alpha_audio = compute_alpha(X_audio, y_all, "AUDIO")
-    # alpha_vision = compute_alpha(X_vision, y_all, "VISION")
-    alpha_text = compute_alpha(X_text, y_all, "TEXT", proj_dim=PROJ_DIM, smooth_ratio=0.2)
-    alpha_audio = compute_alpha(X_audio, y_all, "AUDIO", proj_dim=PROJ_DIM, smooth_ratio=0.2)
-    alpha_vision = compute_alpha(X_vision, y_all, "VISION", proj_dim=PROJ_DIM, smooth_ratio=0.2)
-
-    # --------- 保存 ----------
-    np.save(SAVE_DIR / "alpha_text.npy", alpha_text)
-    np.save(SAVE_DIR / "alpha_audio.npy", alpha_audio)
-    np.save(SAVE_DIR / "alpha_vision.npy", alpha_vision)
-    print(f"\nα 已保存到: {SAVE_DIR.resolve()}")
-
-
+# ---------------- 使用示例 ----------------
 if __name__ == "__main__":
-    run()
+    # 假设你已经初始化了 MultimodalPerceiver 的投影层
+    from models.perceiver import MultimodalPerceiver
+    from utils.config_loader import load_config
+    cfg = load_config("./config/config.yaml")
+    model = MultimodalPerceiver(cfg)
+
+    model_projs = {
+        "text": model.text_proj,
+        "audio": model.audio_proj,
+        "vision": model.vision_proj
+    }
+
+    run_alpha(cfg, model_projs)
