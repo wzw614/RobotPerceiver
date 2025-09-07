@@ -142,7 +142,7 @@ class Perceiver(nn.Module):
         weight_tie_layers = False,
         fourier_encode_data = True,
         self_per_cross_attn = 1,
-        final_classifier_head = True
+        final_classifier_head = True,
     ):
         """The shape of the final attention mechanism will be:
         depth * (cross attention -> self_per_cross_attn * self attention)
@@ -215,47 +215,109 @@ class Perceiver(nn.Module):
             nn.Linear(latent_dim, num_classes)
         ) if final_classifier_head else nn.Identity()
 
-    def forward(
-        self,
-        data,
-        mask = None,
-        return_embeddings = False
-    ):
+    # def forward(
+    #     self,
+    #     data,
+    #     mask = None,
+    #     return_embeddings = False
+    # ):
+    #     b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
+    #     assert len(axis) == self.input_axis, 'input data must have the right number of axis'
+    #
+    #     if self.fourier_encode_data:
+    #         # calculate fourier encoded positions in the range of [-1, 1], for all axis
+    #
+    #         axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
+    #         pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
+    #         enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
+    #         enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
+    #         enc_pos = repeat(enc_pos, '... -> b ...', b = b)
+    #
+    #         data = torch.cat((data, enc_pos), dim = -1)
+    #
+    #     # concat to channels of data and flatten axis
+    #
+    #     data = rearrange(data, 'b ... d -> b (...) d')
+    #
+    #     x = repeat(self.latents, 'n d -> b n d', b = b)
+    #
+    #     # layers
+    #
+    #     for cross_attn, cross_ff, self_attns in self.layers:
+    #         x = cross_attn(x, context = data, mask = mask) + x
+    #         x = cross_ff(x) + x
+    #
+    #         for self_attn, self_ff in self_attns:
+    #             x = self_attn(x) + x
+    #             x = self_ff(x) + x
+    #
+    #     # allow for fetching embeddings
+    #
+    #     if return_embeddings:
+    #         return x
+    #
+    #     # to logits
+    #
+    #     return self.to_logits(x)
+
+    # def forward(self, data, mask=None, hsic_mask=None, return_embeddings=False):
+    #     b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
+    #     assert len(axis) == self.input_axis, 'input data must have the right number of axis'
+    #
+    #     if self.fourier_encode_data:
+    #         axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
+    #         pos = torch.stack(torch.meshgrid(*axis_pos, indexing='ij'), dim=-1)
+    #         enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
+    #         enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
+    #         enc_pos = repeat(enc_pos, '... -> b ...', b=b)
+    #         data = torch.cat((data, enc_pos), dim=-1)
+    #
+    #     data = rearrange(data, 'b ... d -> b (...) d')
+    #     x = repeat(self.latents, 'n d -> b n d', b=b)
+    #
+    #     # layers
+    #     for i, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
+    #         # 第一层 cross-attention 使用 hsic_mask（如果传入了）
+    #         current_mask = hsic_mask if (hsic_mask is not None and i == 0) else mask
+    #         x = cross_attn(x, context=data, mask=current_mask) + x
+    #         x = cross_ff(x) + x
+    #
+    #         for self_attn, self_ff in self_attns:
+    #             x = self_attn(x) + x
+    #             x = self_ff(x) + x
+    #
+    #     if return_embeddings:
+    #         return x
+    #
+    #     return self.to_logits(x)
+    #
+    def forward(self, data, hsic_mask=None, return_embeddings=False):
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
-        assert len(axis) == self.input_axis, 'input data must have the right number of axis'
+        assert len(axis) == self.input_axis
 
         if self.fourier_encode_data:
-            # calculate fourier encoded positions in the range of [-1, 1], for all axis
-
-            axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
-            pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
+            axis_pos = [torch.linspace(-1., 1., steps=size, device=device, dtype=dtype) for size in axis]
+            pos = torch.stack(torch.meshgrid(*axis_pos, indexing='ij'), dim=-1)
             enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
             enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
-            enc_pos = repeat(enc_pos, '... -> b ...', b = b)
-
-            data = torch.cat((data, enc_pos), dim = -1)
-
-        # concat to channels of data and flatten axis
+            enc_pos = repeat(enc_pos, '... -> b ...', b=b)
+            data = torch.cat((data, enc_pos), dim=-1)
 
         data = rearrange(data, 'b ... d -> b (...) d')
+        x = repeat(self.latents, 'n d -> b n d', b=b)
 
-        x = repeat(self.latents, 'n d -> b n d', b = b)
+        for i, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
+            # 只在第一层 cross-attention 使用 HSIC-Lasso 掩码
+            if hsic_mask is not None and i == 0:
+                x = cross_attn(x, context=data, mask=hsic_mask) + x
+            else:
+                x = cross_attn(x, context=data) + x
 
-        # layers
-
-        for cross_attn, cross_ff, self_attns in self.layers:
-            x = cross_attn(x, context = data, mask = mask) + x
             x = cross_ff(x) + x
-
             for self_attn, self_ff in self_attns:
                 x = self_attn(x) + x
                 x = self_ff(x) + x
 
-        # allow for fetching embeddings
-
         if return_embeddings:
             return x
-
-        # to logits
-
         return self.to_logits(x)
