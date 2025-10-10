@@ -98,6 +98,12 @@ for epoch in range(EPOCHS):
         a_proj = model.audio_proj(audio)
         v_proj = model.vision_proj(vision)
 
+        '''
+            这一块得修改一下，然后再跑代码试试
+            因为我的目标是：第一次 cross-attention 使用 alpha 指导 latent 关注哪些特征，不改变 x 本身
+            可这段代码是：alpha 直接乘到 x 上，相当于修改了 x，本质上是“静态加权”，不是“引导 attention”
+            这不是我想要的
+        '''
         # 训练阶段使用 alpha
         if model.alpha_text is not None:
             B, T, D_latent = t_proj.shape

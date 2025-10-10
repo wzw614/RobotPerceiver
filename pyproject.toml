@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perceiver-pytorch"
+version = "0.8.8"
+description = "Perceiver - Pytorch"
+authors = [
+    { name = "Phil Wang", email = "lucidrains@gmail.com" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+dependencies = ["einops>=0.3", "torch>=1.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
