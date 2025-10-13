@@ -99,12 +99,12 @@ def fourier_encode(x, max_freq, num_bands = 4):
 
 
 '''
+    定义一个继承自 torch.nn.Module 的类 PreNorm
     归一化
     功能：在调用fn之前，对输入和上下文进行归一化
     fn才是真正干事的模块，现在这个类只是在fn干活前，先归一化一下，方便fn干活
     即这个类其实是个准备工作类，让干活的工人吃饱饭，如果没有这个类，fn的输入可能太大太小，导致训练结果不稳定或者发散
 '''
-# 定义一个继承自 torch.nn.Module 的类 PreNorm
 class PreNorm(nn.Module):
     # 初始化函数
     # dim——输入x的特征维度
@@ -115,7 +115,7 @@ class PreNorm(nn.Module):
         self.fn = fn    # 保存传入的子模块（例如注意力层），等会在 forward 中调用
         self.norm = nn.LayerNorm(dim)   # 定义一个 Layer Normalization 层（归一化层），用于对输入 x 做归一化，使其特征分布更稳定，梯度更易传播
 
-        # 如果存在 context_dim(即存在额外的上下文输入)，就创建一个对于的归一化层
+        # 如果存在 context_dim(即存在额外的上下文输入)，就创建一个对其的归一化层
         # 自注意力——只有x，x作为qkv
         # 交叉注意力——x作为q，context作为k和v
         # 否则 self.norm_context 为 None
@@ -256,14 +256,15 @@ class Attention(nn.Module):
         # 动态掩码在这里生效
         # 未被 mask 的位置被置为极小值，softmax 后几乎为 0
         # 我的创新点的入口：用特征生成 mask 来指导 cross-attention
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h = h)
-            sim.masked_fill_(~mask, max_neg_value)
+        # 但这部分和我的创新点不一样的是：这里mask是在token级别起效，即它关注的是哪些token要保留，是位置级屏蔽机制，而不是我要的可以结合hsic-lasso的特征维度级
 
-        # attention, what we cannot get enough of
-        attn = sim.softmax(dim = -1)    # 得到注意力权重
+        if exists(mask):
+            mask = rearrange(mask, 'b ... -> b (...)')  # 把输入的 mask 展为 二维
+            max_neg_value = -torch.finfo(sim.dtype).max # 取当前数据类型（float16/32）的最大负数值
+            mask = repeat(mask, 'b j -> (b h) () j', h = h) # 在多头维度上复制 h 份
+            sim.masked_fill_(~mask, max_neg_value)  # ~mask——逻辑取反，把不该被注意的地方，相似度变为一个非常大的负数
+
+        attn = sim.softmax(dim = -1)    # 得到注意力权重，对sim的每一行（即每个q对所有k的打分）归一化，由于 被mask 的位置为极大福祉，所以这里变为0，即被mask 的位置的注意力权重为0
         attn = self.dropout(attn)   # 正则化，防止过拟合
 
         out = einsum('b i j, b j d -> b i d', attn, v)  # 注意力加权
@@ -277,96 +278,97 @@ class Attention(nn.Module):
     动态掩码只是个称呼，具体的值是需要通过某些方法得到的
 '''
 
-# main class
-
+'''
+Perceiver模型
+核心思想：
+    - 输入数据维度可能非常大（例如图像像素），所以模型不直接在输入上做自注意力；
+    - 而是先定义少量 learnable 的 latent vectors；
+    - 再用 Cross-Attention 把输入信息“读取”到这些 latents 中；
+    - 然后在 latent 空间内部进行多层 Self-Attention；
+    - 最后将 latent 表征汇总，用线性层输出类别。
+    
+'''
 class Perceiver(nn.Module):
     def __init__(
         self,
         *,
-        num_freq_bands,
-        depth,
-        max_freq,
-        input_channels = 3,
-        input_axis = 2,
-        num_latents = 512,
-        latent_dim = 512,
-        cross_heads = 1,
-        latent_heads = 8,
-        cross_dim_head = 64,
-        latent_dim_head = 64,
-        num_classes = 1000,
-        attn_dropout = 0.,
-        ff_dropout = 0.,
-        weight_tie_layers = False,
-        fourier_encode_data = True,
-        self_per_cross_attn = 1,
-        final_classifier_head = True
+        num_freq_bands, # fourier编码的频带数——决定位置编码的精细度
+        depth,  # 网络层数
+        max_freq,  # fourier编码的最高频率——控制频率范围
+        input_channels = 3,  # 输入数据的通道数
+        input_axis = 2,  # 输入数据的维度轴数
+        num_latents = 512,  # latent的数量
+        latent_dim = 512,  # 每个latent的维度
+        cross_heads = 1,  # 交叉注意力的头数
+        latent_heads = 8,  # 自注意力的头数
+        cross_dim_head = 64,  # 交叉注意力每个头的维度大小
+        latent_dim_head = 64,  # 自注意力的每个头的维度大小
+        num_classes = 1000,  # 输出分类的类别数—— 这里默认这么大是因为Perceiver实现最初是参考ImageNet分类任务，有1000个类别
+        attn_dropout = 0.,  # 注意力层的 dropout 比例
+        ff_dropout = 0.,  # 前馈层的 dropout 比例
+        weight_tie_layers = False,  # 是否在不同层中共享权重
+        fourier_encode_data = True,  # 是否启用fourier编码
+        self_per_cross_attn = 1,  # 每次交叉注意力后堆叠多少层自注意力
+        final_classifier_head = True  # 是否添加分类头，如果false则只输出latent
     ):
-        """The shape of the final attention mechanism will be:
-        depth * (cross attention -> self_per_cross_attn * self attention)
-
-        Args:
-          num_freq_bands: Number of freq bands, with original value (2 * K + 1)
-          depth: Depth of net.
-          max_freq: Maximum frequency, hyperparameter depending on how
-              fine the data is.
-          freq_base: Base for the frequency
-          input_channels: Number of channels for each token of the input.
-          input_axis: Number of axes for input data (2 for images, 3 for video)
-          num_latents: Number of latents, or induced set points, or centroids.
-              Different papers giving it different names.
-          latent_dim: Latent dimension.
-          cross_heads: Number of heads for cross attention. Paper said 1.
-          latent_heads: Number of heads for latent self attention, 8.
-          cross_dim_head: Number of dimensions per cross attention head.
-          latent_dim_head: Number of dimensions per latent self attention head.
-          num_classes: Output number of classes.
-          attn_dropout: Attention dropout
-          ff_dropout: Feedforward dropout
-          weight_tie_layers: Whether to weight tie layers (optional).
-          fourier_encode_data: Whether to auto-fourier encode the data, using
-              the input_axis given. defaults to True, but can be turned off
-              if you are fourier encoding the data yourself.
-          self_per_cross_attn: Number of self attention blocks per cross attn.
-          final_classifier_head: mean pool and project embeddings to number of classes (num_classes) at the end
-        """
         super().__init__()
-        self.input_axis = input_axis
-        self.max_freq = max_freq
-        self.num_freq_bands = num_freq_bands
+        self.input_axis = input_axis    # 输入的维度数
+        self.max_freq = max_freq    # 最大频率
+        self.num_freq_bands = num_freq_bands    # 频率数量
 
-        self.fourier_encode_data = fourier_encode_data
-        fourier_channels = (input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0
-        input_dim = fourier_channels + input_channels
+        self.fourier_encode_data = fourier_encode_data  # 是否启用fourier编码
+        fourier_channels = (input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0  # 如果启用——每个输入通道上增加一组正弦、余弦频率特征
+        input_dim = fourier_channels + input_channels   # 原输入通道 + Fourier生成的通道
 
+        # ⭐ 定义可学习的 latent vectors
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
+        # 定义注意力与前馈模块的生成函数
+        # 这里是工厂函数，用于生成多层结构中重复的子模块
+        # PreNorm —— 先做归一化在进行主操作
+        # Attention —— 注意力模块
+        # FeedForward —— 前馈层
+        # cross_attn —— latent（query），input（key、value）
+        # latent_attn —— latent（query、key、value）
         get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
         get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
 
+        # 上面定义了四个函数工厂，每调用一次，都得新建一个Attention模块或者FeedForm模块
+        # 在某些情况下（weight_tie_layers=True），希望不同的层之间可以共享同一个Attention层的权重，而不是重复创建
+        # 最上面的cache_fn装饰器 实现了一个结果缓存机制
+        # 使得当_cache=True && 传入相同的key时，返回上次已经存入缓存的对象，而不是再算一遍
         get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
 
+        # 定义层结构
+        # 模型共 depth 层，每一层包括一个cross_attn，一个cross_fn，以及若干个 self_attns & self_fn模块
         self.layers = nn.ModuleList([])
         for i in range(depth):
+            # 只有当前层的编号>0 且 启用了权重共享 —— 启用缓存机制
             should_cache = i > 0 and weight_tie_layers
             cache_args = {'_cache': should_cache}
 
             self_attns = nn.ModuleList([])
 
+            # 每一次cross_attn后会堆叠多个自注意力层
             for block_ind in range(self_per_cross_attn):
                 self_attns.append(nn.ModuleList([
                     get_latent_attn(**cache_args, key = block_ind),
                     get_latent_ff(**cache_args, key = block_ind)
                 ]))
 
+            # 这样每一层结构为：cross_attn → cross_fn → 多个(self_attns + self_fn)
             self.layers.append(nn.ModuleList([
                 get_cross_attn(**cache_args),
                 get_cross_ff(**cache_args),
                 self_attns
             ]))
 
+        # 分类头
+        # 将所有latent取平均池化
+        # 再经归一化
+        # 映射为类别数
         self.to_logits = nn.Sequential(
             Reduce('b n d -> b d', 'mean'),
             nn.LayerNorm(latent_dim),
@@ -379,41 +381,48 @@ class Perceiver(nn.Module):
         mask = None,
         return_embeddings = False
     ):
+        # 形状解包与断言
+        # 从输入中一次取出 —— 批次大小、空间维度、通道数
+        # data.shape 这里假设为 [b h w c]
+        # b —— batch
+        # *axis —— 中间部分 即 h w —— 因为Perceiver是多媒体架构，所有不能直接写 h，w，c = ？？？,而是为了适应多种输入，使用*axis解包
+        # _ —— 通道数，这里名字为 _ 表示并不关心这个值
+        # device —— 张量所在设备
+        # dtype —— 张量的数据类型
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
 
+        # 如果要启用fourier编码
         if self.fourier_encode_data:
-            # calculate fourier encoded positions in the range of [-1, 1], for all axis
-
+            # 为输入数据的每个轴 生成一个[-1,1]的线性坐标序列，表示位置
             axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
             pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
+            # 编码成高维特征
             enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
             enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
             enc_pos = repeat(enc_pos, '... -> b ...', b = b)
-
+            # 拼接到输入通道上
             data = torch.cat((data, enc_pos), dim = -1)
 
-        # concat to channels of data and flatten axis
-
+        # 把多维输入展平为序列形式 ，方便做注意力
         data = rearrange(data, 'b ... d -> b (...) d')
 
+        # 扩展latent向量 —— 每个 batch 拷贝一份 learnable latent 作为初始状态
         x = repeat(self.latents, 'n d -> b n d', b = b)
 
-        # layers
-
+        # 逐层堆叠注意力结构
         for cross_attn, cross_ff, self_attns in self.layers:
+            # x为latetn ，与输入data做交叉注意力 —— 聚合信息
             x = cross_attn(x, context = data, mask = mask) + x
             x = cross_ff(x) + x
-
+            # x内部自己做自注意力 —— 整合信息
             for self_attn, self_ff in self_attns:
                 x = self_attn(x) + x
                 x = self_ff(x) + x
 
-        # allow for fetching embeddings
-
+        # 如果只要latent —— 直接返回 x
         if return_embeddings:
             return x
 
-        # to logits
-
+        # 如果为最终层，则返回 分类后的结果
         return self.to_logits(x)

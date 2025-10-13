@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 
 # 你自己的pkl路径
-pkl_path = "J:/Lab_experiment/WZW/dataset/CMU-MOSI/Processed/aligned_50.pkl"   # 修改为你真实的路径
+pkl_path = "D:/MyProject/RobotPerceiver/data/open_dataset/mosi/Processed/aligned_50.pkl"
 
 with open(pkl_path, "rb") as f:
     data = pickle.load(f)

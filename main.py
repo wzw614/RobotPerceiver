@@ -1,3 +1,6 @@
+'''
+    使用原始perceiver模型进行训练
+'''
 # ==================== main.py ====================
 import torch
 import numpy as np
