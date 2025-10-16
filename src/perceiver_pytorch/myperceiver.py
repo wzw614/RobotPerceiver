@@ -1,236 +1,3 @@
-# from math import pi, log
-# from functools import wraps
-#
-# import torch
-# from torch import nn, einsum
-# import torch.nn.functional as F
-#
-# from einops import rearrange, repeat
-# from einops.layers.torch import Reduce
-#
-# # helpers
-#
-# def exists(val):
-#     return val is not None
-#
-# def default(val, d):
-#     return val if exists(val) else d
-#
-# def cache_fn(f):
-#     cache = dict()
-#     @wraps(f)
-#     def cached_fn(*args, _cache = True, key = None, **kwargs):
-#         if not _cache:
-#             return f(*args, **kwargs)
-#         nonlocal cache
-#         if key in cache:
-#             return cache[key]
-#         result = f(*args, **kwargs)
-#         cache[key] = result
-#         return result
-#     return cached_fn
-#
-# def fourier_encode(x, max_freq, num_bands = 4):
-#     x = x.unsqueeze(-1)
-#     device, dtype, orig_x = x.device, x.dtype, x
-#
-#     scales = torch.linspace(1., max_freq / 2, num_bands, device = device, dtype = dtype)
-#     scales = scales[(*((None,) * (len(x.shape) - 1)), Ellipsis)]
-#
-#     x = x * scales * pi
-#     x = torch.cat([x.sin(), x.cos()], dim = -1)
-#     x = torch.cat((x, orig_x), dim = -1)
-#     return x
-#
-# # helper classes
-#
-# class PreNorm(nn.Module):
-#     def __init__(self, dim, fn, context_dim = None):
-#         super().__init__()
-#         self.fn = fn
-#         self.norm = nn.LayerNorm(dim)
-#         self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
-#
-#     def forward(self, x, **kwargs):
-#         x = self.norm(x)
-#
-#         if exists(self.norm_context):
-#             context = kwargs['context']
-#             normed_context = self.norm_context(context)
-#             kwargs.update(context = normed_context)
-#
-#         return self.fn(x, **kwargs)
-#
-# class GEGLU(nn.Module):
-#     def forward(self, x):
-#         x, gates = x.chunk(2, dim = -1)
-#         return x * F.gelu(gates)
-#
-# class FeedForward(nn.Module):
-#     def __init__(self, dim, mult = 4, dropout = 0.):
-#         super().__init__()
-#         self.net = nn.Sequential(
-#             nn.Linear(dim, dim * mult * 2),
-#             GEGLU(),
-#             nn.Linear(dim * mult, dim),
-#             nn.Dropout(dropout)
-#         )
-#
-#     def forward(self, x):
-#         return self.net(x)
-#
-# class Attention(nn.Module):
-#     def __init__(self, query_dim, context_dim = None, heads = 8, dim_head = 64, dropout = 0.):
-#         super().__init__()
-#         inner_dim = dim_head * heads
-#         context_dim = default(context_dim, query_dim)
-#
-#         self.scale = dim_head ** -0.5
-#         self.heads = heads
-#
-#         self.to_q = nn.Linear(query_dim, inner_dim, bias = False)
-#         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
-#
-#         self.dropout = nn.Dropout(dropout)
-#         self.to_out = nn.Linear(inner_dim, query_dim)
-#
-#     def forward(self, x, context = None, mask = None):
-#         h = self.heads
-#
-#         q = self.to_q(x)
-#         context = default(context, x)
-#         k, v = self.to_kv(context).chunk(2, dim = -1)
-#
-#         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (q, k, v))
-#
-#         sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-#
-#         if exists(mask):
-#             mask = rearrange(mask, 'b ... -> b (...)')
-#             max_neg_value = -torch.finfo(sim.dtype).max
-#             mask = repeat(mask, 'b j -> (b h) () j', h = h)
-#             sim.masked_fill_(~mask, max_neg_value)
-#
-#         # attention, what we cannot get enough of
-#         attn = sim.softmax(dim = -1)
-#         attn = self.dropout(attn)
-#
-#         out = einsum('b i j, b j d -> b i d', attn, v)
-#         out = rearrange(out, '(b h) n d -> b n (h d)', h = h)
-#         return self.to_out(out)
-#
-# # main class
-#
-# class Perceiver(nn.Module):
-#     def __init__(
-#         self,
-#         *,
-#         num_freq_bands,
-#         depth,
-#         max_freq,
-#         input_channels = 3,
-#         input_axis = 2,
-#         num_latents = 512,
-#         latent_dim = 512,
-#         cross_heads = 1,
-#         latent_heads = 8,
-#         cross_dim_head = 64,
-#         latent_dim_head = 64,
-#         num_classes = 1000,
-#         attn_dropout = 0.,
-#         ff_dropout = 0.,
-#         weight_tie_layers = False,
-#         fourier_encode_data = True,
-#         self_per_cross_attn = 1,
-#         final_classifier_head = True
-#     ):
-#         super().__init__()
-#         self.input_axis = input_axis
-#         self.max_freq = max_freq
-#         self.num_freq_bands = num_freq_bands
-#
-#         self.fourier_encode_data = fourier_encode_data
-#         fourier_channels = (input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0
-#         input_dim = fourier_channels + input_channels
-#
-#         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
-#
-#         get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
-#         get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
-#         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
-#         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
-#
-#         get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
-#
-#         self.layers = nn.ModuleList([])
-#         for i in range(depth):
-#             should_cache = i > 0 and weight_tie_layers
-#             cache_args = {'_cache': should_cache}
-#
-#             self_attns = nn.ModuleList([])
-#
-#             for block_ind in range(self_per_cross_attn):
-#                 self_attns.append(nn.ModuleList([
-#                     get_latent_attn(**cache_args, key = block_ind),
-#                     get_latent_ff(**cache_args, key = block_ind)
-#                 ]))
-#
-#             self.layers.append(nn.ModuleList([
-#                 get_cross_attn(**cache_args),
-#                 get_cross_ff(**cache_args),
-#                 self_attns
-#             ]))
-#
-#         self.to_logits = nn.Sequential(
-#             Reduce('b n d -> b d', 'mean'),
-#             nn.LayerNorm(latent_dim),
-#             nn.Linear(latent_dim, num_classes)
-#         ) if final_classifier_head else nn.Identity()
-#
-#     def forward(
-#         self,
-#         data,
-#         mask = None,
-#         return_embeddings = False
-#     ):
-#         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
-#         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
-#
-#         if self.fourier_encode_data:
-#             # calculate fourier encoded positions in the range of [-1, 1], for all axis
-#
-#             axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
-#             pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
-#             enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
-#             enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
-#             enc_pos = repeat(enc_pos, '... -> b ...', b = b)
-#
-#             data = torch.cat((data, enc_pos), dim = -1)
-#
-#         # concat to channels of data and flatten axis
-#
-#         data = rearrange(data, 'b ... d -> b (...) d')
-#
-#         x = repeat(self.latents, 'n d -> b n d', b = b)
-#
-#         # layers
-#
-#         for cross_attn, cross_ff, self_attns in self.layers:
-#             x = cross_attn(x, context = data, mask = mask) + x
-#             x = cross_ff(x) + x
-#
-#             for self_attn, self_ff in self_attns:
-#                 x = self_attn(x) + x
-#                 x = self_ff(x) + x
-#
-#         # allow for fetching embeddings
-#
-#         if return_embeddings:
-#             return x
-#
-#         # to logits
-#
-#         return self.to_logits(x)
 # 常用数学常量pi和对数函数
 from math import pi, log
 
@@ -252,6 +19,7 @@ from einops import rearrange, repeat
 
 # 高阶张量聚合（sum、mean等）层，可以直接嵌入nn.Module
 from einops.layers.torch import Reduce
+
 
 # 检查某个值是否存在
 # val 存在返回 True，否则返回 False
@@ -462,7 +230,6 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)  # 输入张量 x 直接通过 Sequential 中的层，形状不变
 
-
 '''
 ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
 我知道如何改了：
@@ -480,12 +247,9 @@ class FeedForward(nn.Module):
     输入：latent--q, context(x)--k,v
     输出：
 '''
-
-
 class Attention(nn.Module):
-    def __init__(self, query_dim, context_dim=256, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
         super().__init__()
-        print("这里是attention的init")
         inner_dim = dim_head * heads  # 多头注意力展开后的总维度
         context_dim = default(context_dim, query_dim)  # 如果context_dim未提供，即做的是自注意力，那么默认未query_dim，即latent的dim
 
@@ -504,31 +268,20 @@ class Attention(nn.Module):
         self.to_out = nn.Linear(inner_dim, query_dim)
 
     def forward(self, x, context=None, weight_mask=None):
-        print("这里是attention的forward")
         h = self.heads
         # q,k,v生成
         q = self.to_q(x)
-        if context is not None:
-            print(f"现在是交叉注意力")
-        else:
-            print(f"现在是自注意力")
+
         context = default(context, x)  # 如果 context 是 None，则用 x（自注意力）
-        print(f"attention——forward，context的形状为：{context.shape}")
+
         k, v = self.to_kv(context).chunk(2, dim=-1)  # 把key和value分开
         # 将 Q/K/V 按多头拆分，方便并行计算
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-        print(f"attention——forward，Query的形状为：{q.shape}")
-        print(f"attention——forward，Key的形状为：{k.shape}")
-        print(f"attention——forward，Value的形状为：{v.shape}")
-
         # 计算 scaled dot-product 相似度矩阵
         sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
 
-        # context不是x——不是自注意力，而是交叉注意力，所以用掩码掩码
         if context is not x and exists(weight_mask):
-            print(f"attention——forward，weight_mask的形状为：{weight_mask.shape}")
             weight_mask = repeat(weight_mask, 'b d -> (b h) 1 d', h=self.heads)
-            print(f"attention——forward，weight_mask扩展后的形状为：{weight_mask.shape}")
             weight_mask = weight_mask[..., :sim.size(-1)]
             sim = sim * weight_mask
 
@@ -539,7 +292,6 @@ class Attention(nn.Module):
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)  # 重构回原来的维度
         return self.to_out(out)  # 线性映射回query_dim
 
-
 '''
     我是希望以hsic-lasso得到所有数据的不同维度对最终分类标签的相关性权重alpha，然后不管是哪一batch，第一次的交叉注意力皆由alpha指导，即在最开始给latent划个重点
     我目前做的是在第一次时，直接乘上去了，但是当然，原始x是没有被改变的（等等，我也不确定，我得再看看我的代码）
@@ -549,27 +301,19 @@ class Attention(nn.Module):
 '''
 
 class DynamicMask(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, latent_dim, num_latents):
         super().__init__()
-        self.dim = dim
-        hidden_dim = max(1, dim // 2)
         # 一个简单的可微模块，（后期可替换为更复杂的方法）
         self.mlp = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
+            nn.Linear(latent_dim, latent_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim, dim),
+            nn.Linear(latent_dim // 2, num_latents),
             nn.Sigmoid()
         )
-        # 可学习的输入向量
-        self.dynamic_mask = nn.Parameter(torch.randn(dim))
+    def forward(self, latents, context):
+        pooled_latent = latents.mean(dim = 1)
+        return self.mlp(pooled_latent)# 自动广播
 
-    def forward(self, batch_size, device):
-        m = self.dynamic_mask.to(device)
-        mask = self.mlp(m)
-        print(f"动态掩码生成网络——动态掩码形状为：{mask.shape}")
-        mask = mask.unsqueeze(0).expand(batch_size, -1)  # [B, dynamic_mask]
-        print(f"动态掩码生成网络——扩展后动态掩码形状为：{mask.shape}")
-        return mask
 
 '''
 Perceiver模型
@@ -579,7 +323,7 @@ Perceiver模型
     - 再用 Cross-Attention 把输入信息“读取”到这些 latents 中；
     - 然后在 latent 空间内部进行多层 Self-Attention；
     - 最后将 latent 表征汇总，用线性层输出类别。
-
+    
 '''
 class Perceiver(nn.Module):
     def __init__(
@@ -590,8 +334,8 @@ class Perceiver(nn.Module):
             max_freq,  # fourier编码的最高频率——控制频率范围
             input_channels=3,  # 输入数据的通道数
             input_axis=2,  # 输入数据的维度轴数
-            num_latents=128,  # latent的数量
-            latent_dim=256,  # 每个latent的维度
+            num_latents=512,  # latent的数量
+            latent_dim=512,  # 每个latent的维度
             cross_heads=1,  # 交叉注意力的头数
             latent_heads=8,  # 自注意力的头数
             cross_dim_head=64,  # 交叉注意力每个头的维度大小
@@ -603,6 +347,7 @@ class Perceiver(nn.Module):
             fourier_encode_data=True,  # 是否启用fourier编码
             self_per_cross_attn=1,  # 每次交叉注意力后堆叠多少层自注意力
             final_classifier_head=True,  # 是否添加分类头，如果false则只输出latent
+            use_dynamic_mask=False # 是否使用动态掩码
     ):
         super().__init__()
 
@@ -612,13 +357,15 @@ class Perceiver(nn.Module):
 
         self.fourier_encode_data = fourier_encode_data  # 是否启用fourier编码
         fourier_channels = (
-                input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0  # 如果启用——每个输入通道上增加一组正弦、余弦频率特征
+                    input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0  # 如果启用——每个输入通道上增加一组正弦、余弦频率特征
         input_dim = fourier_channels + input_channels  # 原输入通道 + Fourier生成的通道
         # 定义可学习的 latent vectors
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
-        # 实例化动态掩码对象
-        self.dynamic_mask_gen = DynamicMask(latent_dim*3)
+        # 动态掩码模块
+        self.use_dynamic_mask = use_dynamic_mask
+        if use_dynamic_mask:
+            self.dynamic_mask_gen = DynamicMask(latent_dim, num_latents)
 
         # 定义注意力与前馈模块的生成函数
         # 这里是工厂函数，用于生成多层结构中重复的子模块
@@ -670,9 +417,9 @@ class Perceiver(nn.Module):
         # 分类
         self.to_logits = nn.Sequential(
             Reduce('b n d -> b d', 'mean'),
-            nn.LayerNorm(latent_dim),  # 将所有latent取平均池化
-            nn.Linear(latent_dim, num_classes)  # 再经归一化
-        ) if final_classifier_head else nn.Identity()  # 映射为类别数
+            nn.LayerNorm(latent_dim), # 将所有latent取平均池化
+            nn.Linear(latent_dim, num_classes) # 再经归一化
+        ) if final_classifier_head else nn.Identity() # 映射为类别数
 
     def forward(
             self,
@@ -680,7 +427,6 @@ class Perceiver(nn.Module):
             static_mask=None,
             return_embeddings=False
     ):
-        print(">>> 进入 perceiver forward <<<")
         # 形状解包与断言
         # 从输入中一次取出 —— 批次大小、空间维度、通道数
         # data.shape 这里假设为 [b h w c]
@@ -691,7 +437,7 @@ class Perceiver(nn.Module):
         # dtype —— 张量的数据类型
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
         assert len(axis) == self.input_axis, 'input data must have the right number of axis'
-        print(f"perceiver-forward，数据形状为：{data.shape}")
+
         # 如果要启用fourier编码
         if self.fourier_encode_data:
             # 为输入数据的每个轴 生成一个[-1,1]的线性坐标序列，表示位置
@@ -706,23 +452,17 @@ class Perceiver(nn.Module):
 
         # 把多维输入展平为序列形式 ，方便做注意力
         data = rearrange(data, 'b ... d -> b (...) d')
-        print(f"perceiver-forward，数据展平后形状为：{data.shape}")
         # 扩展latent向量 —— 每个 batch 拷贝一份 learnable latent 作为初始状态
         x = repeat(self.latents, 'n d -> b n d', b=b)
-        print(f"perceiver-forward，扩展后的latent形状为：{x.shape}")
 
         # 逐层堆叠注意力结构
         for layer_idx, (cross_attn, cross_ff, self_attns) in enumerate(self.layers):
-            print(f"perceiver-forward，现在是第{layer_idx+1}层")
             if layer_idx == 0 and static_mask is not None:
-                print(f"perceiver-forward，现在是第{layer_idx+1}层，使用静态掩码做指导")
-                weight_mask = static_mask.to(x.device)
+                weight_mask = static_mask
+            elif self.use_dynamic_mask:
+                weight_mask = self.dynamic_mask_gen(x, data)   # 可微生成动态掩码
             else:
-                print(f"perceiver-forward，现在是第{layer_idx + 1}层，使用动态掩码做指导")
-                B, T, D = x.shape
-                print(f"batch_size为{B}")
-                weight_mask = self.dynamic_mask_gen(B,device=x.device)  # 可微生成动态掩码
-                print(f"perceiver-forward，生成的动态掩码的形状为{weight_mask.shape}")
+                weight_mask = None
 
             x = cross_attn(x, context=data, weight_mask=weight_mask) + x
             x = cross_ff(x) + x
@@ -730,5 +470,5 @@ class Perceiver(nn.Module):
             for self_attn, self_ff in self_attns:
                 x = self_attn(x) + x
                 x = self_ff(x) + x
-        print(">>> 退出 perceiver forward <<<")
+
         return x if return_embeddings else self.to_logits(x)

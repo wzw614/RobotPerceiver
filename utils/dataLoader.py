@@ -46,7 +46,9 @@ class MOSIDataset(Dataset):
             self.text = text_proj(self.text)
             self.audio = audio_proj(self.audio)
             self.vision = vision_proj(self.vision)
-
+        print(f"映射后text的维度为:{self.text.shape}")
+        print(f"映射后audio的维度为:{self.audio.shape}")
+        print(f"映射后vision的维度为:{self.vision.shape}")
     def __len__(self) -> int:
         return self.text.size(0)
 
